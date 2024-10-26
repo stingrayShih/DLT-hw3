@@ -1,54 +1,144 @@
-import torch
-import pickle
-from torch.utils.data import Dataset
+"""
+# Author: Yinghao Li
+# Modified: October 24th, 2023
+# ---------------------------------------
+# Description: IO functions
+"""
 
 
-class SortDataset(Dataset):
-    def __init__(self, split, length=6, num_digits=3):
-        assert split in {"train", "test"}
-        self.split = split
-        self.length = length
-        self.num_digits = num_digits
+import os
+import os.path as op
+import regex
+import json
+import shutil
+import logging
+from pathlib import Path
+from typing import Optional
 
-    def __len__(self):
-        return 10000  # ...
+logger = logging.getLogger(__name__)
 
-    def get_vocab_size(self):
-        return self.num_digits
+__all__ = ["set_log_path", "set_logging", "logging_args", "init_dir", "save_json"]
 
-    def get_sequence_length(self):
-        # the length of the sequence that will feed into transformer,
-        # containing concatenated input and the output, but -1 because
-        # the transformer starts making predictions at the last input element
-        return self.length * 2 - 1
 
-    def __getitem__(self, idx):
-        # use rejection sampling to generate an input example from the desired split
-        while True:
-            # generate some random integers
-            inp = torch.randint(self.num_digits, size=(self.length,), dtype=torch.long)
-            # half of the time let's try to boost the number of examples that
-            # have a large number of repeats, as this is what the model seems to struggle
-            # with later in training, and they are kind of rate
-            if torch.rand(1).item() < 0.5:
-                if inp.unique().nelement() > self.length // 2:
-                    # too many unqiue digits, re-sample
-                    continue
-            # figure out if this generated example is train or test based on its hash
-            h = hash(pickle.dumps(inp.tolist()))
-            inp_split = "test" if h % 4 == 0 else "train"  # designate 25% of examples as test
-            if inp_split == self.split:
-                break  # ok
+def set_logging(log_path: Optional[str] = None):
+    """
+    setup logging format
 
-        # solve the task: i.e. sort
-        sol = torch.sort(inp)[0]
+    Parameters
+    ----------
+    log_path: where to save logging file. Leave None to save no log files
 
-        # concatenate the problem specification and the solution
-        cat = torch.cat((inp, sol), dim=0)
+    Returns
+    -------
+    None
+    """
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.INFO)
 
-        # the inputs to the transformer will be the offset sequence
-        x = cat[:-1].clone()
-        y = cat[1:].clone()
-        # we only want to predict at output locations, mask out the loss at the input locations
-        y[: self.length - 1] = -1
-        return x, y
+    if log_path and log_path != "disabled":
+        log_path = op.abspath(log_path)
+        if not op.isdir(op.split(log_path)[0]):
+            os.makedirs(op.abspath(op.normpath(op.split(log_path)[0])))
+        if op.isfile(log_path):
+            os.remove(log_path)
+
+        file_handler = logging.FileHandler(filename=log_path)
+        file_handler.setLevel(logging.INFO)
+
+        logging.basicConfig(
+            format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
+            datefmt="%m/%d/%Y %H:%M:%S",
+            level=0,
+            handlers=[stream_handler, file_handler],
+        )
+    else:
+        logging.basicConfig(
+            format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
+            datefmt="%m/%d/%Y %H:%M:%S",
+            level=logging.INFO,
+            handlers=[stream_handler],
+        )
+
+    return None
+
+
+def remove_dir(directory: str):
+    """
+    Remove a directory and its subtree folders/files
+    """
+    dirpath = Path(directory)
+    if dirpath.exists() and dirpath.is_dir():
+        shutil.rmtree(dirpath)
+    return None
+
+
+def init_dir(directory: str, clear_original_content: Optional[bool] = True):
+    """
+    Create the target directory. If the directory exists, remove all subtree folders/files in it.
+    """
+
+    if clear_original_content:
+        remove_dir(directory)
+    os.makedirs(op.normpath(directory), exist_ok=True)
+    return None
+
+
+def save_json(obj, path: str, collapse_level: Optional[int] = None):
+    """
+    Save objective to a json file.
+    Create this function so that we don't need to worry about creating parent folders every time
+
+    Parameters
+    ----------
+    obj: the objective to save
+    path: the path to save
+    collapse_level: set to any collapse value to prettify output json accordingly
+
+    Returns
+    -------
+    None
+    """
+    file_dir = op.dirname(op.normpath(path))
+    if file_dir:
+        os.makedirs(file_dir, exist_ok=True)
+
+    json_obj = json.dumps(obj, indent=2, ensure_ascii=False)
+    if collapse_level:
+        json_obj = prettify_json(json_obj, collapse_level=collapse_level)
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(json_obj)
+
+    return None
+
+
+def prettify_json(text, indent=2, collapse_level=4):
+    """
+    Make json file more readable by collapsing indent levels higher than `collapse_level`.
+
+    Parameters
+    ----------
+    text: input json text obj
+    indent: the indent value of your json text. Notice that this value needs to be larger than 0
+    collapse_level: the level from which the program stops adding new lines
+
+    Usage
+    -----
+    ```
+    my_instance = list()  # user-defined serializable data structure
+    json_obj = json.dumps(my_instance, indent=2, ensure_ascii=False)
+    json_obj = prettify_json(json_text, indent=2, collapse_level=4)
+    with open(path_to_file, 'w', encoding='utf=8') as f:
+        f.write(json_text)
+    ```
+    """
+    pattern = r"[\r\n]+ {%d,}" % (indent * collapse_level)
+    text = regex.sub(pattern, " ", text)
+    text = regex.sub(r"([\[({])+ +", r"\g<1>", text)
+    text = regex.sub(
+        r"[\r\n]+ {%d}([])}])" % (indent * (collapse_level - 1)),
+        r"\g<1>",
+        text,
+    )
+    text = regex.sub(r"(\S) +([])}])", r"\g<1>\g<2>", text)
+    return text

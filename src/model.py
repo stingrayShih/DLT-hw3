@@ -215,10 +215,26 @@ class GPT(nn.Module):
         Hint: First, you can generate token embeddings using the input token indices and the model's token embedding layer. Similarly, generate position embeddings using the positions (ranging from 0 to the length of the sequence) and the position embedding layer.
         """
         # --- TODO: start of your code ---
+        batch_size, seq_len = idx.shape
+        token_emb = self.transformer.wte(idx)  # (B,T,C)
+        pos_emb = self.transformer.wpe(torch.arange(seq_len, device=idx.device))
+
+
+        x = self.transformer.drop(token_emb + pos_emb)
+        for block in self.transformer.h:
+            x = block(x)
+        x = self.transformer.ln_f(x)
+        logits = self.output_head(x)
+
+
+        loss = None
+        if targets is not None:
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+        
+        return logits, loss
 
         # --- TODO: end of your code ---
 
-        raise NotImplementedError
 
     @torch.no_grad()
     def inference(self, ids, max_new_tokens):
@@ -242,6 +258,14 @@ class GPT(nn.Module):
 
         for _ in range(max_new_tokens):
             # --- TODO: start of your code ---
+
+            logits, _=self(ids)
+            last_logits = logits[:, -1, :]
+            probs = F.softmax(last_logits, dim=-1)
+            new_id = torch.multinomial(probs, num_samples=1)
+
+            ids = torch.cat((ids, new_id), dim=1)
+
 
             # --- TODO: end of your code ---
             pass

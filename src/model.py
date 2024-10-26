@@ -25,7 +25,7 @@ class GELU(nn.Module):
         Returns the GELU activation of the input x.
         """
         # --- TODO: start of your code ---
-        return x*0.5*(1+torch.erf(x/2**0.5))
+        return x * 0.5 * ( 1 + torch.erf( x / (2**0.5) ) )
         # --- TODO: end of your code ---
         
 

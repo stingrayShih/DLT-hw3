@@ -226,10 +226,17 @@ class GPT(nn.Module):
         x = self.transformer.ln_f(x)
         logits = self.output_head(x)
 
+        #print(logits.size())
+
+        #a=logits.view(-1, logits.size(2))
+        #b=targets.view(-1)
+        #print(a.size(), b.size())
+        #print(a)
+        #print(b)
 
         loss = None
         if targets is not None:
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+            loss = F.cross_entropy(logits.view(-1, logits.size(2)), targets.view(-1), ignore_index=-1)
         
         return logits, loss
 
